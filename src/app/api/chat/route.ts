@@ -66,19 +66,25 @@ export async function POST(req: NextRequest) {
 
         // const url = 'https://search.bytedance.net/gpt/openapi/online/v2/crawl?ak=DbWO3JBONL1FLkD1DPw2R6Zsf5zF9aZi_GPT_AK'
         // const model = 'gemini-2.5-pro-preview-06-05'
-        const url = 'https://search.bytedance.net/gpt/openapi/online/multimodal/crawl?ak=fgQQD249xbTBhVnmsKze2ZBJALs3pTxg_GPT_AK'
-        const model = 'gemini-2.5-flash'
+        // const max_tokens = 40960
+        // const url = 'https://search.bytedance.net/gpt/openapi/online/multimodal/crawl?ak=fgQQD249xbTBhVnmsKze2ZBJALs3pTxg_GPT_AK'
+        // const model = 'gemini-2.5-flash'
+        const url = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+        const model = 'qwen-plus'
+        const api_key = 'sk-03c7d037df484dd281c02e2ed679d03b'
+        const max_tokens = 12800
 
         const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-TT-LOGID': 'your_logid_here', // You should generate a unique logid for each request
+                'Authorization': `Bearer ${api_key}`,
             },
             body: JSON.stringify({
                 stream: true,
                 model: model,
-                max_tokens: 40960,
+                max_tokens: max_tokens,
                 messages: [
                     {
                         content: finalPrompt,

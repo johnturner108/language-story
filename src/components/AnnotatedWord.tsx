@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 
 interface AnnotatedWordProps {
     word: string;
@@ -9,32 +9,14 @@ interface AnnotatedWordProps {
 
 const AnnotatedWord: React.FC<AnnotatedWordProps> = ({ word, annotation }) => {
     const [showTooltip, setShowTooltip] = useState(false);
-    const wrapperRef = useRef<HTMLSpanElement>(null);
-
-    const handleClick = () => {
-        setShowTooltip(prev => !prev);
-    };
-
-    // Click outside to close tooltip
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-                setShowTooltip(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
 
     return (
-        <span className="relative inline-block" ref={wrapperRef}>
-            <span
-                className="cursor-pointer text-blue-600 hover:underline"
-                onClick={handleClick}
-            >
+        <span
+            className="relative inline-block"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+        >
+            <span className="text-blue-600 hover:underline">
                 {word}
             </span>
             {showTooltip && (
