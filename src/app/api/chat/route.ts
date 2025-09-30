@@ -1,27 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import db from '@/lib/db';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
 
 export const runtime = 'nodejs';
 
 const promptFilePath = path.join(process.cwd(), 'src', 'prompts', 'prompt.md');
 const promptTemplate = fs.readFileSync(promptFilePath, 'utf-8');
 
-
 export async function POST(req: NextRequest) {
     try {
-        const { prompt } = await req.json();
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return new NextResponse('Unauthorized', { status: 401 });
+        }
+
+        const user = await db.user.findUnique({ where: { email: session.user.email } });
+        if (!user) {
+            return new NextResponse('User not found', { status: 404 });
+        }
+
+        const { prompt, chatId: existingChatId } = await req.json();
 
         if (!prompt) {
             return new NextResponse('Prompt is required', { status: 400 });
         }
+
         const finalPrompt = promptTemplate.replace('{{topic}}', prompt);
 
-        // const url = 'https://search.bytedance.net/gpt/openapi/online/v2/crawl?ak=DbWO3JBONL1FLkD1DPw2R6Zsf5zF9aZi_GPT_AK'
-        // const model = 'gemini-2.5-pro-preview-06-05'
-        // const max_tokens = 40960
-        // const url = 'https://search.bytedance.net/gpt/openapi/online/multimodal/crawl?ak=fgQQD249xbTBhVnmsKze2ZBJALs3pTxg_GPT_AK'
-        // const model = 'gemini-2.5-flash'
+        // Save user message
+        let chatId = existingChatId;
+        if (!chatId) {
+            const newChat = await db.chat.create({
+                data: {
+                    userId: user.id,
+                    title: prompt.substring(0, 30), // Use first 30 chars of prompt as title
+                },
+            });
+            chatId = newChat.id;
+        }
+
+        await db.message.create({
+            data: {
+                chatId: chatId,
+                content: prompt,
+                role: 'user',
+            },
+        });
+
         const url = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
         const model = 'qwen-plus'
         const api_key = 'sk-03c7d037df484dd281c02e2ed679d03b'
@@ -31,23 +59,13 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-TT-LOGID': 'your_logid_here', // You should generate a unique logid for each request
                 'Authorization': `Bearer ${api_key}`,
             },
             body: JSON.stringify({
                 stream: true,
                 model: model,
                 max_tokens: max_tokens,
-                messages: [
-                    {
-                        content: finalPrompt,
-                        role: 'user',
-                    },
-                ],
-                thinking: {
-                    include_thoughts: true,
-                    budget_tokens: 2000,
-                },
+                messages: [{ content: finalPrompt, role: 'user' }],
             }),
         });
 
@@ -61,16 +79,41 @@ export async function POST(req: NextRequest) {
             async start(controller) {
                 const reader = response.body!.getReader();
                 const decoder = new TextDecoder();
+                let fullResponse = '';
 
                 try {
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) {
+                            // Save the full assistant response
+                            await db.message.create({
+                                data: {
+                                    chatId: chatId,
+                                    content: fullResponse,
+                                    role: 'assistant',
+                                },
+                            });
                             break;
                         }
                         const chunkString = decoder.decode(value, { stream: true });
-                        console.log('[Server] Forwarding chunk:', chunkString); // This log will appear in the terminal
-                        // Just forward the chunk
+                        const lines = chunkString.split('\n');
+
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.substring(6).trim();
+                                if (data === '[DONE]') {
+                                    continue;
+                                }
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.choices && parsed.choices[0].delta && parsed.choices[0].delta.content) {
+                                        fullResponse += parsed.choices[0].delta.content;
+                                    }
+                                } catch (e) {
+                                    // Ignore parsing errors for now
+                                }
+                            }
+                        }
                         controller.enqueue(value);
                     }
                 } catch (error) {
@@ -83,13 +126,13 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        return new NextResponse(stream, {
-            headers: {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
-            },
-        });
+        const headers = new Headers();
+        headers.set('Content-Type', 'text/event-stream');
+        headers.set('Cache-Control', 'no-cache');
+        headers.set('Connection', 'keep-alive');
+        headers.set('X-Chat-Id', chatId); // Send back the chat ID
+
+        return new NextResponse(stream, { headers });
 
     } catch (error) {
         console.error('Internal Server Error:', error);
