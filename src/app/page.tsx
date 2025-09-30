@@ -1,7 +1,11 @@
-import db from "@/lib/db"
+import Sidebar from "@/components/Sidebar";
+import Chat from "@/components/Chat";
 
-export default async function Home() {
-  const user = await db.user.findFirst();
-
-  return <>{JSON.stringify(user)}</>
+export default function Home() {
+  return (
+    <div className="flex h-screen">
+      <Sidebar />
+      <Chat />
+    </div>
+  );
 }
