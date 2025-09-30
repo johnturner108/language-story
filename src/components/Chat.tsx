@@ -5,13 +5,63 @@
 import React, { useState } from 'react';
 import AnnotatedWord from './AnnotatedWord';
 
-// Mock function to simulate streaming story generation
-const mockStreamStory = async (prompt: string, onChunk: (chunk: string) => void) => {
-    const story = `Мой хоро́ший [adj. хороший: 好的] друг [n. друг: 朋友] вчера́ [adv. вчера: 昨天] купи́л [v. покупать (未), **купить (完)**: 购买] интере́сную [adj. интересный: 有趣的] кни́гу [n. книга: 书], кото́рую он до́лго [adv. долгий: 长时间地] чита́л [v. **читать (未)**, прочитать (完): 阅读].`;
-    const chunks = story.split('');
-    for (const chunk of chunks) {
-        await new Promise(resolve => setTimeout(resolve, 20)); // Simulate network delay
-        onChunk(chunk);
+
+
+
+
+
+const streamStory = async (prompt: string, onChunk: (chunk: string) => void) => {
+    const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt }),
+    });
+
+    if (!response.body) {
+        return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        // The response is a stream of SSE.
+        // A event is something like: 
+        // data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","created":1727677595,"model":"gemini-2.5-pro-preview-06-05","choices":[{"index":0,"delta":{"content":"Мой"},"finish_reason":null}]}
+        // It's possible that a single `read()` call returns a partial event.
+        // It's also possible that a single `read()` call returns multiple events.
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        // The last line could be incomplete, so we keep it in the buffer.
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                const data = line.substring(6).trim();
+                console.log('[Browser] Received data chunk:', data); // This log will appear in the browser console
+                if (data === '[DONE]') {
+                    return;
+                }
+                if (data) {
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.choices && parsed.choices[0].delta && parsed.choices[0].delta.content) {
+                            onChunk(parsed.choices[0].delta.content);
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse SSE data:', data);
+                    }
+                }
+            }
+        }
     }
 };
 
@@ -53,7 +103,7 @@ const Chat = () => {
         setIsLoading(true);
         setStory('');
 
-        await mockStreamStory(prompt, (chunk) => {
+        await streamStory(prompt, (chunk) => {
             setStory((prev) => prev + chunk);
         });
 
