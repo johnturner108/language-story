@@ -28,7 +28,7 @@ export default async function Home({ searchParams }: HomePageProps) {
     },
   });
 
-  const activeChatId = searchParams.chatId;
+  const { chatId: activeChatId } = await searchParams;
   const messages = activeChatId
     ? await db.message.findMany({
       where: { chatId: activeChatId },
